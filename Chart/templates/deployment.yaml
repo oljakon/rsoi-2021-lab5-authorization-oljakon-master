@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.appName }}-deployment
+  labels:
+    env: prod
+    app: {{ .Values.appName }}
+    owner: stormurinn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      project: {{ .Values.appName }}-app
+  template:
+    metadata:
+      labels:
+        project: {{ .Values.appName }}-app
+    spec:
+      containers:
+        - name: {{ .Values.appName }}-container
+          image: {{ .Values.image }}
+          ports:
+            - containerPort: {{ .Values.port }}
+          imagePullPolicy: Always
+          env:
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.appName }}-service
+  labels:
+    env: prod
+    owner: stormurinn
+spec:
+  selector:
+    project: {{ .Values.appName }}-app
+  ports:
+    - name: {{ .Values.appName }}-listener
+      protocol: TCP
+      port: {{ .Values.port }}
+      targetPort: {{ .Values.port }}
+  type: ClusterIP

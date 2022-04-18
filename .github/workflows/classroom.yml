@@ -1,0 +1,103 @@
+name: GitHub Classroom Workflow
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+jobs:
+  build:
+    name: Autograding
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Push gateway to DockerHub
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          file: gateway-service.Dockerfile
+          tags: stormurinn/gateway-service:latest
+
+      - name: Push cars to DockerHub
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          file: car-service.Dockerfile
+          tags: stormurinn/car-service:latest
+
+      - name: Push payment to DockerHub
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          file: payment-service.Dockerfile
+          tags: stormurinn/payment-service:latest
+
+      - name: Push rental to DockerHub
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          push: true
+          file: rental-service.Dockerfile
+          tags: stormurinn/rental-service:latest
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@94337306dda8180d967a56932ceb4ddcf01edae7
+        with:
+          service_account_key: ${{ secrets.GKE_SA_KEY }}
+          project_id: ${{ secrets.GKE_PROJECT }}
+
+      - name: Get the GKE credentials
+        uses: google-github-actions/get-gke-credentials@fb08709ba27618c31c09e014e1d8364b02e5042e
+        with:
+          cluster_name: rsoi-kondrashova
+          location: us-central1-c
+          credentials: ${{ secrets.GKE_SA_KEY }}
+
+      - name: Set up Helm
+        run: |-
+          wget https://get.helm.sh/helm-v3.4.1-linux-amd64.tar.gz
+          tar xvf helm-v3.4.1-linux-amd64.tar.gz
+          mv linux-amd64/helm /usr/local/bin
+          rm helm-v3.4.1-linux-amd64.tar.gz
+          rm -rf linux-amd64
+          helm version
+      - name: Deploy
+        run: |-
+          helm upgrade --install app-gateway Chart/ --set image=stormurinn/gateway-service:latest --set port=8080 --set appName=gateway
+          helm upgrade --install app-cars Chart/ --set image=stormurinn/car-service:latest --set port=8081 --set appName=cars
+          helm upgrade --install app-payment Chart/ --set image=stormurinn/payment-service:latest --set port=8082 --set appName=payment
+          helm upgrade --install app-rental Chart/ --set image=stormurinn/rental-service:latest --set port=8083 --set appName=rental
+          sleep 60
+
+      - name: Run API Tests
+        id: run-newman
+        uses: anthonyvscode/newman-action@v1
+        with:
+          collection: v3/postman-collection/[rsoi] postman_collection.json
+          environment: postman-environment/[rsoi][k8s] postman_environment.json
+          ignoreRedirects: true
+          delayRequest: 100
+          reporters: cli
+
+      - uses: education/autograding@v1
+        id: autograder
+        continue-on-error: true
